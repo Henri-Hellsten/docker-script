@@ -4,6 +4,10 @@
 # Variables
 #
 source docker-config.sh
+if [ -z "$CONTAINER" ] || [ -z "$HOST" ] || [ -z "$NETWORK" ] || [ -z "$IP" ] || [ -z "$PORT" ] || [ -z "$VOLUME" ]; then
+  echo "missing docker-config.sh variables..."
+  exit
+fi
 
 #
 # Help
