@@ -25,7 +25,7 @@ VOLUME="/var/www:/var/www"
 #
 
 # Code path on local machine to be copied to container
-# NOTE! If add path first and then actual directories where the code resides!
+# NOTE! Add path to code root directory first and actual code directories after separated by space
 CODE="/var/www api client"
 # AWS ECR repository address
 AWSREPO="1234567890.dkr.ecr.eu-central-1.amazonaws.com"
