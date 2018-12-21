@@ -4,7 +4,7 @@
 # Variables
 #
 source docker-config.sh
-if [ -z "$CONTAINER" ] || [ -z "$HOST" ] || [ -z "$NETWORK" ] || [ -z "$IP" ] || [ -z "$PORT" ] || [ -z "$VOLUME" ]; then
+if [ -z "$CONTAINER" ] || [ -z "$HOST" ] || [ -z "$NETWORK" ] || [ -z "$IP" ] || [ -z "$PORT" ]; then
   echo "missing docker-config.sh variables..."
   exit
 fi
@@ -21,6 +21,9 @@ function help {
   echo "  build/rebuild     Build docker container or rebuild from scratch"
   echo "  clean             Clean docker temporary files"
   echo "  start             Start docker container"
+  echo "AWS:"
+  echo "  deploy            Deploy docker container to AWS ECS"
+  echo "  push              Push docker container to AWS ECR"
 }
 
 #
@@ -34,14 +37,30 @@ function access {
 # Build docker container
 #
 function build {
-  sudo docker build -t $CONTAINER:latest .
+  if [ -z "$CODE" ]; then
+    echo "missing docker-config.sh variables..."
+    exit
+  fi
+
+  # Check if build params given
+  PARAMS=""
+  if [ ! -z "$@" ]; then
+    PARAMS=$@
+  fi
+
+  # Pack code to get it inside docker build enviroment
+  echo "Packing code..."
+  tar -zcf data/code.tar.gz -C $CODE
+
+  # Build docker container
+  sudo docker build $PARAMS -t $CONTAINER:latest .
 }
 
 #
 # Re-build docker container
 #
 function rebuild {
-  sudo docker build --no-cache -t $CONTAINER:latest .
+  build "--no-cache"
 }
 
 #
@@ -92,6 +111,12 @@ function start {
     sudo docker rm $RESP
   fi
 
+  # Check optional params
+  SET_VOLUME=""
+  if [ ! -z $VOLUME ]; then
+    SET_VOLUME="--volume $VOLUME"
+  fi
+
   sudo docker run -d \
     --add-host=$HOST:127.0.0.1 \
     --hostname=$HOST \
@@ -100,11 +125,41 @@ function start {
     --network $NETWORK \
     --publish $PORT \
     --rm=true \
-    --volume $VOLUME \
+    $SET_VOLUME \
     $CONTAINER
 }
 
 
+
+#
+# Deploy docker container to AWS
+#
+function deploy {
+  if [ -z "$CLUSTER" ] || [ -z "$SERVICE" ]; then
+    echo "missing docker-config.sh variables..."
+    exit
+  fi
+
+  # Call force deployment for docker service
+  aws ecs update-service --cluster $CLUSTER --service $SERVICE --force-new-deployment
+}
+
+#
+# Push docker container to AWS
+#
+function push {
+  if [ -z "$AWSREPO" ]; then
+    echo "missing docker-config.sh variables..."
+    exit
+  fi
+
+  # Login to AWS
+  sudo $(aws ecr get-login --no-include-email)
+  # Tag container properly for AWS
+  sudo docker tag $CONTAINER:latest $AWSREPO/$CONTAINER:latest
+  # Push container
+  sudo docker push $AWSREPO/$CONTAINER:latest
+}
 
 # Check if no arguments given
 if [ -z "$1" ]; then
@@ -114,7 +169,7 @@ fi
 
 # Check that all given variables are valid
 for VAR in "$@"; do
-  if [[ ! $VAR == @(access|build|clean|rebuild|start) ]]; then
+  if [[ ! $VAR == @(access|build|clean|rebuild|start|deploy|push) ]]; then
     help
     exit 1
   fi
@@ -132,5 +187,9 @@ for VAR in "$@"; do
     rebuild
   elif [ "$VAR" == "start" ]; then
     start
+  elif [ "$VAR" == "deploy" ]; then
+    deploy
+  elif [ "$VAR" == "push" ]; then
+    push
   fi
 done
