@@ -1,15 +1,6 @@
 #!/bin/bash
 
 #
-# Variables
-#
-source docker-config.sh
-if [ -z "$CONTAINER" ] || [ -z "$HOST" ] || [ -z "$NETWORK" ] || [ -z "$IP" ] || [ -z "$PORT" ]; then
-  echo "missing docker-config.sh variables..."
-  exit
-fi
-
-#
 # Help
 #
 function help {
@@ -22,14 +13,42 @@ function help {
   echo "  clean             Clean docker temporary files"
   echo "  start             Start docker container"
   echo "AWS:"
+  echo "  build-aws         Build docker container for AWS"
   echo "  deploy            Deploy docker container to AWS ECS"
   echo "  push              Push docker container to AWS ECR"
+}
+
+#
+# Include variables
+#
+source docker-config.sh
+
+#
+# Check variables
+#
+function check {
+  # Go thru given variables and check if missing
+  MISSING=()
+  for VAR in "$@"; do
+    if [ -z "${!VAR}" ]; then
+      MISSING+=($VAR)
+    fi
+  done
+
+  # Check if missing one of the given global variables
+  if [ ${#MISSING[@]} -gt 0 ]; then
+    echo "missing docker-config.sh variable(s) ${MISSING[@]}"
+    exit 1
+  fi
 }
 
 #
 # Access docker container
 #
 function access {
+  # Required variables
+  check "CONTAINER"
+
   sudo docker exec -it $CONTAINER /bin/bash
 }
 
@@ -37,10 +56,8 @@ function access {
 # Build docker container
 #
 function build {
-  if [ -z "$CODE" ]; then
-    echo "missing docker-config.sh variables..."
-    exit
-  fi
+  # Required variables
+  check "CONTAINER"
 
   # Check if build params given
   PARAMS=""
@@ -48,12 +65,26 @@ function build {
     PARAMS=$@
   fi
 
+  # Build docker container
+  sudo docker build $PARAMS -t $CONTAINER:latest .
+}
+
+#
+# Build docker container for AWS
+#
+function build-aws {
+  # Required variables
+  check "CODE"
+
   # Pack code to get it inside docker build enviroment
   echo "Packing code..."
   tar -zcf data/code.tar.gz -C $CODE
 
-  # Build docker container
-  sudo docker build $PARAMS -t $CONTAINER:latest .
+  # Build docker without cache
+  build "--no-cache"
+
+  # Remove packed code so it won't get reused accidentally
+  rm -rf data/code.tar.gz
 }
 
 #
@@ -67,6 +98,9 @@ function rebuild {
 # Clean docker container
 #
 function clean {
+  # Required variables
+  check "CONTAINER"
+
   # Stop and remove current container if found
   RESP=$(sudo docker ps -qa --no-trunc --filter "name=$CONTAINER")
   if [ ! -z "$RESP" ]; then
@@ -105,6 +139,9 @@ function clean {
 # Start docker container
 #
 function start {
+  # Required variables
+  check "CONTAINER" "HOST" "IP" "NETWORK" "PORT"
+
   RESP=$(sudo docker ps -qa --no-trunc --filter "name=$CONTAINER")
   if [ ! -z "$RESP" ]; then
     sudo docker stop $RESP
@@ -135,10 +172,8 @@ function start {
 # Deploy docker container to AWS
 #
 function deploy {
-  if [ -z "$CLUSTER" ] || [ -z "$SERVICE" ]; then
-    echo "missing docker-config.sh variables..."
-    exit
-  fi
+  # Required variables
+  check "CLUSTER" "SERVICE"
 
   # Call force deployment for docker service
   aws ecs update-service --cluster $CLUSTER --service $SERVICE --force-new-deployment
@@ -148,10 +183,8 @@ function deploy {
 # Push docker container to AWS
 #
 function push {
-  if [ -z "$AWSREPO" ]; then
-    echo "missing docker-config.sh variables..."
-    exit
-  fi
+  # Required variables
+  check "CONTAINER" "AWSREPO"
 
   # Login to AWS
   sudo $(aws ecr get-login --no-include-email)
@@ -169,7 +202,7 @@ fi
 
 # Check that all given variables are valid
 for VAR in "$@"; do
-  if [[ ! $VAR == @(access|build|clean|rebuild|start|deploy|push) ]]; then
+  if [[ ! $VAR == @(access|build|build-aws|clean|rebuild|start|deploy|push) ]]; then
     help
     exit 1
   fi
@@ -187,6 +220,11 @@ for VAR in "$@"; do
     rebuild
   elif [ "$VAR" == "start" ]; then
     start
+  #
+  # AWS
+  #
+  elif [ "$VAR" == "build-aws" ]; then
+    build-aws
   elif [ "$VAR" == "deploy" ]; then
     deploy
   elif [ "$VAR" == "push" ]; then
